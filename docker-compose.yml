@@ -1,0 +1,59 @@
+services:
+  backend-a:
+    build: .
+    container_name: backend-a
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.2
+    cap_add: [ NET_ADMIN ]
+    sysctls:
+      net.ipv4.conf.all.arp_ignore: 1
+      net.ipv4.conf.all.arp_announce: 2
+
+  backend-b:
+    build: .
+    container_name: backend-b
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.3
+    cap_add: [ NET_ADMIN ]
+    sysctls:
+      net.ipv4.conf.all.arp_ignore: 1
+      net.ipv4.conf.all.arp_announce: 2
+
+  lb:
+    build:
+      context: .
+      dockerfile: Dockerfile          # 用会编译的那份
+      # 如需切换不同 XDP 目标，传 ARG：
+      args:
+        - TARGET=xdp_dsr
+    container_name: lb
+    network_mode: host
+    pid: host
+    privileged: true
+    volumes:
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - backend-a
+      - backend-b
+    # ENTRYPOINT 仍由 Dockerfile 决定，那里会自动找 bridge
+
+  client:
+    image: curlimages/curl
+    container_name: client
+    entrypoint: sh
+    stdin_open: true
+    tty: true
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.4
+
+networks:
+  lbnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+
