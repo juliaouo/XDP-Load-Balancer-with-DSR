@@ -1,6 +1,8 @@
 services:
   backend-a:
-    build: .
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
     container_name: backend-a
     networks:
       lbnet:
@@ -11,7 +13,9 @@ services:
       net.ipv4.conf.all.arp_announce: 2
 
   backend-b:
-    build: .
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
     container_name: backend-b
     networks:
       lbnet:
@@ -24,7 +28,7 @@ services:
   lb:
     build:
       context: .
-      dockerfile: Dockerfile          # 用会编译的那份
+      dockerfile: Dockerfile
       # 如需切换不同 XDP 目标，传 ARG：
       args:
         - TARGET=xdp_dsr
