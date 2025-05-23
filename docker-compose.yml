@@ -9,8 +9,11 @@ services:
         ipv4_address: 10.10.0.2
     cap_add: [ NET_ADMIN ]
     sysctls:
-      net.ipv4.conf.all.arp_ignore: 1
+      # ARP 靜默
+      net.ipv4.conf.all.arp_ignore:   1
       net.ipv4.conf.all.arp_announce: 2
+      net.ipv4.conf.all.accept_local: 1   
+      net.ipv4.conf.all.rp_filter:    0    
 
   backend-b:
     build:
@@ -22,8 +25,10 @@ services:
         ipv4_address: 10.10.0.3
     cap_add: [ NET_ADMIN ]
     sysctls:
-      net.ipv4.conf.all.arp_ignore: 1
+      net.ipv4.conf.all.arp_ignore:   1
       net.ipv4.conf.all.arp_announce: 2
+      net.ipv4.conf.all.accept_local: 1
+      net.ipv4.conf.all.rp_filter:    0
 
   lb:
     build:
