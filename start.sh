@@ -15,6 +15,7 @@ echo "[lb] Using bridge $BR_IF"
 
 # ---------- 2. 綁 VIP ----------
 ip addr replace "$VIP" dev "$BR_IF"
+ip addr add 10.10.0.6/24 dev "$BR_IF"
 
 # ---------- 3. 卸舊 XDP + 清 pin ----------
 ip link set dev "$BR_IF" xdp off 2>/dev/null || true
@@ -75,6 +76,8 @@ echo "[lb] maps updated"
 ip link set dev "$BR_IF" xdp pinned "$PIN_DIR/prog_xdp"
 echo "[lb] XDP attached on $BR_IF"
 
+echo "[lb] Starting metrics collector in background..."
+/usr/local/bin/metrics_collector /usr/local/bin/xdp_dsr_kern.o &
+
 echo "[lb] setup done → sleep"
 exec sleep infinity
-

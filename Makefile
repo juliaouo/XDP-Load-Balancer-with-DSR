@@ -7,11 +7,8 @@ ARCH    ?= x86_64
 KERN_SRC  := $(TARGET)_kern.c
 BPF_OBJ   := $(TARGET)_kern.o
 
-# 嘗試找 <target>_user.c；有檔才編
-ifneq ("$(wildcard $(TARGET)_user.c)","")
-  USER_SRC := $(TARGET)_user.c
-  USER_BIN := $(TARGET)_user
-endif
+COLLECTOR_SRC := metrics_collector.c
+COLLECTOR_BIN := metrics_collector
 
 LIBBPF_DIR = libbpf/src
 CLANG ?= clang
@@ -21,24 +18,24 @@ CC    ?= gcc
 CFLAGS_BPF = -O2 -g -Wall -target bpf \
              -I/usr/include/$(shell uname -m)-linux-gnu \
              -I$(LIBBPF_DIR) -I$(LIBBPF_DIR)/include
-CFLAGS_USER = -O2 -g -Wall -static
-
+CFLAGS_USER = -O2 -g -Wall \
+             -I/usr/include/$(shell uname -m)-linux-gnu \
+             -I$(LIBBPF_DIR) -I$(LIBBPF_DIR)/include
+COLLECTOR_LIBS = -lcurl -ljson-c
 # ------------ Rules ----------------------------------------------------------
-all: $(BPF_OBJ) $(USER_BIN)
+all: $(BPF_OBJ) $(COLLECTOR_BIN)
 
 $(BPF_OBJ): $(KERN_SRC)
 	$(CLANG) $(CFLAGS_BPF) -c $< -o $@
 
-# 只有當 USER_SRC / USER_BIN 都非空時才生成 loader 目標
-ifneq ($(USER_BIN),)
-$(USER_BIN): $(USER_SRC) $(LIBBPF_DIR)/libbpf.a
-	$(CC) $(CFLAGS_USER) $< $(LIBBPF_DIR)/libbpf.a -lelf -lz -o $@
-endif
+$(COLLECTOR_BIN): $(COLLECTOR_SRC) $(LIBBPF_DIR)/libbpf.a
+	$(CC) $(CFLAGS_USER) $< $(LIBBPF_DIR)/libbpf.a -lelf -lz $(COLLECTOR_LIBS) -o $@
 
 $(LIBBPF_DIR)/libbpf.a:
 	$(MAKE) -C $(LIBBPF_DIR)
 
 clean:
-	rm -f *.o *_user
+	rm -f *.o $(COLLECTOR_BIN) $(USER_BIN)
+	rm -f *.ll
 .PHONY: all clean
 

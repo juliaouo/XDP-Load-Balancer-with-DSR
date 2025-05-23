@@ -10,7 +10,7 @@ RUN apt-get update && \
 # 2. 安裝 app
 WORKDIR /app
 COPY server.py /app/
-RUN pip install --no-cache-dir flask
+RUN pip install --no-cache-dir flask psutil
 
 # 3. 啟動腳本：綁 VIP → 進 Flask
 RUN printf '%s\n' \

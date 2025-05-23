@@ -3,6 +3,12 @@
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <bpf_endian.h>
+#include "xdp_dsr_kern.h"
+
+#define IP_ADDRESS(x) (unsigned int)(10 + (10 << 8) + (0 << 16) + (x << 24))
+
+#define BACKEND_A 2
+#define BACKEND_B 3
 
 #define VIP_IP    bpf_htonl(0x0A0A0005)  /* 10.10.0.5 */
 #define MAX_BE    2
@@ -26,6 +32,91 @@ struct {
     __type(key,   __u32);
     __type(value, __u32);
 } tx_ifindex SEC(".maps");
+
+// 後端伺服器狀態結構
+struct backend_stats {
+    __u32 cpu_percent;     // CPU 使用率 (0-10000, 表示 0.00% - 100.00%)
+    __u32 avg_latency;     // 平均延遲 (ms * 100, 保留兩位小數)
+    __u64 last_updated;    // 最後更新時間 (ns)
+    __u32 active_conns;    // 活躍連線數
+};
+
+// BPF Map: 儲存後端伺服器統計資料
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, struct backend_stats);
+    __uint(max_entries, 16);
+} backend_stats_m SEC(".maps");
+
+// BPF Map: 儲存連線追蹤 (client_ip -> backend_ip)
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, __u32);     // client IP
+    __type(value, __u32);   // backend IP
+    __uint(max_entries, 1024);
+} connection_map SEC(".maps");
+
+// 計算後端伺服器的負載分數 (越低越好)
+static __always_inline __u32 calculate_load_score(struct backend_stats *stats) {
+    __u64 now = bpf_ktime_get_ns();
+    
+    // 如果統計資料太舊 (超過 10 秒)，給予懲罰分數
+    if (now - stats->last_updated > 10000000000ULL) {
+        return 999999; // 高懲罰分數
+    }
+    
+    // 負載分數 = CPU使用率 * 100 + 平均延遲 + 活躍連線數 * 10
+    // 這個公式可以根據需求調整權重
+    __u32 score = (stats->cpu_percent / 100) * 100 +  // CPU 權重
+                  (stats->avg_latency / 100) +         // 延遲權重
+                  stats->active_conns * 10;            // 連線數權重
+    
+    return score;
+}
+
+// 選擇最佳後端伺服器
+static __always_inline __u32 select_best_backend(void) {
+    __u32 backend_a_ip = IP_ADDRESS(BACKEND_A);
+    __u32 backend_b_ip = IP_ADDRESS(BACKEND_B);
+
+    struct backend_stats *stats_a = bpf_map_lookup_elem(&backend_stats_m, &backend_a_ip);
+    if (!stats_a) {
+        struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
+        if (!stats_b) {
+            // 兩邊都沒資料，fallback to round-robin
+            return (bpf_ktime_get_ns() % 2) ? 0 : 1;
+        }
+        // 只有 B 有資料
+        return 1;
+    }
+    struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
+    if (!stats_b) {
+        // 只有 A 有資料
+        return 0;
+    }
+
+    // 算負載分數並選擇較低的
+    __u32 score_a = calculate_load_score(stats_a);
+    __u32 score_b = calculate_load_score(stats_b);
+    
+    bpf_printk("Backend A score: %u, Backend B score: %u", score_a, score_b);
+    
+    return (score_a <= score_b) ? 0 : 1;
+}
+
+// 更新連線計數
+static __always_inline void update_connection_count(__u32 backend_ip, int delta) {
+    struct backend_stats *stats = bpf_map_lookup_elem(&backend_stats_m, &backend_ip);
+    if (stats) {
+        if (delta > 0) {
+            stats->active_conns++;
+        } else if (delta < 0 && stats->active_conns > 0) {
+            stats->active_conns--;
+        }
+        bpf_map_update_elem(&backend_stats_m, &backend_ip, stats, BPF_ANY);
+    }
+}
 
 SEC("xdp_dsr")
 int xdp_dsr_lb(struct xdp_md *ctx)
@@ -64,8 +155,21 @@ int xdp_dsr_lb(struct xdp_md *ctx)
     }
     bpf_printk("XDP: matched VIP\n");
 
+    __u32 client_ip = iph->saddr;
+    __u32 selected_backend;
+    // 選擇最佳後端
+    selected_backend = select_best_backend();
+    bpf_printk("Selected new backend %u", selected_backend);
+    
+    // 記錄新連線
+    bpf_map_update_elem(&connection_map, &client_ip, &selected_backend, BPF_ANY);
+    
+    // 增加連線計數
+    __u32 backend_ip = IP_ADDRESS(selected_backend);
+    update_connection_count(backend_ip, 1);
+
     /* 轮询选 backend（0 或 1）*/
-    key = bpf_ktime_get_ns() & (MAX_BE - 1);
+    key = selected_backend;
 
     /* 查 MAC 并改写 */
     struct backend *be = bpf_map_lookup_elem(&backends, &key);
