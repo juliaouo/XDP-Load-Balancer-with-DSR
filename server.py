@@ -4,6 +4,7 @@ import os
 import time
 import psutil
 import threading
+from flask import stream_with_context
 
 app = Flask(__name__)
 cpu_times = []
@@ -28,12 +29,15 @@ def cpu():
 
 @app.route("/io")
 def io_load():
-    # 模擬網路密集：5MB 隨機數據
-    chunk = os.urandom(1024*1024)
     def gen():
+        # 每次都重新生成，避免重复引用同一块内存
         for _ in range(5):
-            yield chunk
-    return Response(gen(), mimetype="application/octet-stream")
+            yield os.urandom(1024*1024)
+    # 把 generator 包裹进 stream_with_context，这样每次 yield 都有活跃的 request/app context
+    return Response(
+        stream_with_context(gen()),
+        mimetype="application/octet-stream"
+    )
 
 @app.route("/metrics")
 def metrics():

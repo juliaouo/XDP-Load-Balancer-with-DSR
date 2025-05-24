@@ -8,7 +8,13 @@
 #define TCP_SYN 0x02
 #define TCP_ACK 0x10
 
-#define IP_ADDRESS(x) (unsigned int)(10 + (10 << 8) + (0 << 16) + (x << 24))
+#define IP_ADDRESS(x) (unsigned int)(10 + (10 << 8) + (0 << 16) + ((x) << 24))
+
+#define NIPQUAD(addr) \
+    ((addr)       & 0xff), \
+    (((addr) >> 8)  & 0xff), \
+    (((addr) >> 16) & 0xff), \
+    (((addr) >> 24) & 0xff)
 
 #define BACKEND_A 2
 #define BACKEND_B 3
@@ -169,21 +175,16 @@ int xdp_dsr_lb(struct xdp_md *ctx)
     fk.src_port = bpf_ntohs(th->source);
     fk.dst_port = bpf_ntohs(th->dest);
 
-    __u8 *tcp_hdr = (void*)th;
-    __u8 flags = tcp_hdr[13];
-
     __u32 selected_backend;
     __u32 *p = bpf_map_lookup_elem(&connection_map, &fk);
     if (p) {
         selected_backend = *p;
-    } else if ((flags & TCP_SYN) && !(flags & TCP_ACK)) {
+    } else {
         selected_backend = select_best_backend();
         bpf_map_update_elem(&connection_map, &fk, &selected_backend, BPF_ANY);
         // __u32 backend_ip = backend_ips[selected_backend];
         __u32 backend_ip = IP_ADDRESS(selected_backend + 2);
         update_connection_count(backend_ip, 1);
-    } else {
-        return XDP_PASS;
     }
 
     key = selected_backend;

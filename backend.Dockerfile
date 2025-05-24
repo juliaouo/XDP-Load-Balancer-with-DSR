@@ -1,24 +1,34 @@
-# backend.Dockerfile  ── for DSR (VIP on lo, no sysctl here)
+# backend.Dockerfile  ── 用於 DSR（VIP 綁定在 lo，不在此處設定 sysctl）
 
 FROM python:3.12-slim
 
-# 1. 裝 iproute2，才能用 `ip addr`
+# 1. 安裝 iproute2（用於 ip addr），並清理 apt 快取
 RUN apt-get update && \
     apt-get install -y --no-install-recommends iproute2 && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. 安裝 app
+# 2. 複製應用程式並安裝 Python 依賴：Flask、psutil、Gunicorn
 WORKDIR /app
 COPY server.py /app/
-RUN pip install --no-cache-dir flask psutil
+RUN pip install --no-cache-dir flask psutil gunicorn
 
-# 3. 啟動腳本：綁 VIP → 進 Flask
-RUN printf '%s\n' \
-  '#!/bin/sh' \
-  'set -e' \
-  'ip addr add 10.10.0.5/32 dev lo' \
-  'exec python /app/server.py' \
-  > /usr/local/bin/start-backend && chmod +x /usr/local/bin/start-backend
+# 3. 產生啟動腳本：先綁定 VIP，再啟動多 worker 的 Gunicorn
+RUN cat > /usr/local/bin/start-backend <<EOF
+#!/bin/sh
+set -e    # 遇到錯誤就退出
+# 綁定 VIP
+ip addr add 10.10.0.5/32 dev lo
 
+# 啟動 Gunicorn
+exec gunicorn server:app \
+    --workers 4 \
+    --bind 0.0.0.0:80 \
+    --worker-class sync \
+    --backlog 128
+EOF
+
+# 4. 賦予啟動腳本執行權限
+RUN chmod +x /usr/local/bin/start-backend
+
+# 5. 容器啟動時執行 start-backend
 ENTRYPOINT ["/usr/local/bin/start-backend"]
-
