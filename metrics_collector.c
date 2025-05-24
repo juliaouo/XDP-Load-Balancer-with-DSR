@@ -58,6 +58,7 @@ int fetch_metrics(const char *backend_ip, struct backend_stats *stats) {
         return -1;
     }
     
+    curl_easy_setopt(curl, CURLOPT_INTERFACE, "10.10.0.6");
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);

@@ -97,7 +97,7 @@ echo "[lb] maps updated"
 ip link set dev "$BR_IF" xdp pinned "$PIN_DIR/prog_xdp"
 echo "[lb] XDP attached on $BR_IF"
 
-# echo "[lb] Starting metrics collector in background..."
+echo "[lb] Starting metrics collector in background..."
 /usr/local/bin/metrics_collector /usr/local/bin/xdp_dsr_kern.o &
 
 echo "[lb] setup done → sleep"
