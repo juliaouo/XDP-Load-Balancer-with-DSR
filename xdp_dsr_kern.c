@@ -4,6 +4,7 @@
 #include <linux/ip.h>
 #include <bpf_endian.h>
 #include "xdp_dsr_kern.h"
+#include <linux/tcp.h>
 
 #define IP_ADDRESS(x) (unsigned int)(10 + (10 << 8) + (0 << 16) + (x << 24))
 
@@ -16,6 +17,11 @@
 struct backend {
     __u8 mac[6];
 };
+
+// static const __u32 backend_ips[MAX_BE] = {
+//     [0] = IP_ADDRESS(BACKEND_A),
+//     [1] = IP_ADDRESS(BACKEND_B),
+// };
 
 /* 后端 MAC 列表 */
 struct {
@@ -33,14 +39,6 @@ struct {
     __type(value, __u32);
 } tx_ifindex SEC(".maps");
 
-// 後端伺服器狀態結構
-struct backend_stats {
-    __u32 cpu_percent;     // CPU 使用率 (0-10000, 表示 0.00% - 100.00%)
-    __u32 avg_latency;     // 平均延遲 (ms * 100, 保留兩位小數)
-    __u64 last_updated;    // 最後更新時間 (ns)
-    __u32 active_conns;    // 活躍連線數
-};
-
 // BPF Map: 儲存後端伺服器統計資料
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -49,12 +47,12 @@ struct {
     __uint(max_entries, 16);
 } backend_stats_m SEC(".maps");
 
-// BPF Map: 儲存連線追蹤 (client_ip -> backend_ip)
+// BPF Map: 儲存連線追蹤 (5-tuple)
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, __u32);     // client IP
-    __type(value, __u32);   // backend IP
-    __uint(max_entries, 1024);
+    __uint(max_entries, 4096);
+    __type(key, struct flow_key);
+    __type(value, __u32);   // backend index
 } connection_map SEC(".maps");
 
 // 計算後端伺服器的負載分數 (越低越好)
@@ -155,20 +153,32 @@ int xdp_dsr_lb(struct xdp_md *ctx)
     }
     bpf_printk("XDP: matched VIP\n");
 
-    __u32 client_ip = iph->saddr;
-    __u32 selected_backend;
-    // 選擇最佳後端
-    selected_backend = select_best_backend();
-    bpf_printk("Selected new backend %u", selected_backend);
-    
-    // 記錄新連線
-    bpf_map_update_elem(&connection_map, &client_ip, &selected_backend, BPF_ANY);
-    
-    // 增加連線計數
-    __u32 backend_ip = IP_ADDRESS(selected_backend);
-    update_connection_count(backend_ip, 1);
+    struct flow_key fk = {
+        .src_ip   = iph->saddr,
+        .dst_ip   = iph->daddr,
+        .proto    = iph->protocol,
+    };
+    // TCP 還要 parse port，必須先確認 L4 header 在 bounds 內
+    struct tcphdr *th = (void*)iph + sizeof(*iph);
+    if ((void*)(th + 1) > data_end) {
+        // TCP 頭不完整，就不做 DS-Rewrite，直接交給內核
+        return XDP_PASS;
+    }
+    fk.src_port = bpf_ntohs(th->source);
+    fk.dst_port = bpf_ntohs(th->dest);
 
-    /* 轮询选 backend（0 或 1）*/
+    __u32 selected_backend;
+    __u32 *p = bpf_map_lookup_elem(&connection_map, &fk);
+    if (p) {
+        selected_backend = *p;
+    } else {
+        selected_backend = select_best_backend();
+        bpf_map_update_elem(&connection_map, &fk, &selected_backend, BPF_ANY);
+        // __u32 backend_ip = backend_ips[selected_backend];
+        __u32 backend_ip = IP_ADDRESS(selected_backend + 2);
+        update_connection_count(backend_ip, 1);
+    }
+
     key = selected_backend;
 
     /* 查 MAC 并改写 */

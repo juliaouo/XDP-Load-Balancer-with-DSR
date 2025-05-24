@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 拷貝編譯產物
 COPY --from=build /usr/local/bin/bpftool /usr/local/bin/
-COPY --from=build /src/*_kern.o /usr/local/bin/
+COPY --from=build /src/xdp_dsr_kern.o /usr/local/bin/
 COPY --from=build /src/metrics_collector /usr/local/bin/
 
 # 拷貝 Python 後端伺服器

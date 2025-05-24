@@ -26,3 +26,19 @@ iph_csum(struct iphdr *iph)
     unsigned long long csum = bpf_csum_diff(0, 0, (unsigned int *)iph, sizeof(struct iphdr), 0);
     return csum_fold_helper(csum);
 }
+
+struct flow_key {
+    __u32 src_ip;
+    __u32 dst_ip;
+    __u16 src_port;
+    __u16 dst_port;
+    __u8  proto;
+};
+
+// 後端伺服器狀態結構
+struct backend_stats {
+    __u32 cpu_percent;     // CPU 使用率 (0-10000, 表示 0.00% - 100.00%)
+    __u32 avg_latency;     // 平均延遲 (ms * 100, 保留兩位小數)
+    __u64 last_updated;    // 最後更新時間 (ns)
+    __u32 active_conns;    // 活躍連線數
+};
