@@ -15,7 +15,11 @@ echo "[lb] Using bridge $BR_IF"
 
 # ---------- 2. 綁 VIP ----------
 ip addr replace "$VIP" dev "$BR_IF"
-ip addr add 10.10.0.6/24 dev "$BR_IF"
+# lb 獲取 mmetrics 使用的 ip
+SECOND_IP="10.10.0.6/24"
+if ! ip -o -4 addr show dev "$BR_IF" | grep -q "$SECOND_IP"; then
+    ip addr add "$SECOND_IP" dev "$BR_IF"
+fi
 
 # ---------- 3. 卸舊 XDP + 清 pin ----------
 ip link set dev "$BR_IF" xdp off 2>/dev/null || true
@@ -28,12 +32,29 @@ bpftool prog load /usr/local/bin/xdp_dsr_kern.o \
 echo "[lb] program pinned → $PIN_DIR/prog_xdp"
 
 # ---------- 5. 取出並 pin 兩張 map ----------
-MAP_IDS=$(bpftool prog show pin "$PIN_DIR/prog_xdp" \
-          | sed -n 's/.*map_ids[[:space:]]\+//p' \
-          | tr ',' ' ')
-set -- $MAP_IDS
-bpftool map pin id "$1" "$PIN_DIR/backends"
-bpftool map pin id "$2" "$PIN_DIR/tx_ifindex"
+find_map_id() {               # $1 = backends | tx_ifindex
+  local want="$1" id mname
+
+  # 1) 先把 map_ids 取乾淨 → "269 266 267 268 271"
+  for id in $(bpftool prog show pin "$PIN_DIR/prog_xdp" \
+                 | sed -n 's/.*map_ids \([0-9,]*\).*/\1/p' \
+                 | tr ',' ' '); do
+
+    # 2) 真正讀 map 的名稱；第一行一定含有 "name XXX"
+    mname=$(bpftool map show id "$id" | awk '/[[:space:]]name[[:space:]]/{print $4; exit}')
+    if [ "$mname" = "$want" ]; then
+        echo "$id"; return 0
+    fi
+  done
+  return 1                # 全掃完還沒命中
+}
+
+ID_BACKENDS=$(find_map_id backends)  || { echo "[lb] cannot find backends map"; exit 1; }
+ID_TXIDX=$(find_map_id tx_ifindex)   || { echo "[lb] cannot find tx_ifindex map"; exit 1; }
+
+bpftool map pin id "$ID_BACKENDS" "$PIN_DIR/backends"
+bpftool map pin id "$ID_TXIDX"    "$PIN_DIR/tx_ifindex"
+echo "[lb] pin maps → backends=$ID_BACKENDS  tx_ifindex=$ID_TXIDX"
 
 # ---------- 6. 幫手函式 ----------
 mac2hex () {                 # 02:42:0a:0a:00:02 → 0x02 0x42 …
