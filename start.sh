@@ -86,11 +86,11 @@ echo "[lb] $BK_A mac=$MAC_A ifindex=$IFIDX_A"
 echo "[lb] $BK_B mac=$MAC_B ifindex=$IFIDX_B"
 
 # ---------- 8. 寫入 maps ----------
-bpftool map update pinned "$PIN_DIR/backends"   key 0 0 0 0 value $(mac2hex "$MAC_A")
-bpftool map update pinned "$PIN_DIR/backends"   key 1 0 0 0 value $(mac2hex "$MAC_B")
+bpftool map update pinned "$PIN_DIR/backends"   key 2 0 0 0 value $(mac2hex "$MAC_A")
+bpftool map update pinned "$PIN_DIR/backends"   key 3 0 0 0 value $(mac2hex "$MAC_B")
 
-bpftool map update pinned "$PIN_DIR/tx_ifindex" key 0 0 0 0 value "$IFIDX_A" 0 0 0
-bpftool map update pinned "$PIN_DIR/tx_ifindex" key 1 0 0 0 value "$IFIDX_B" 0 0 0
+bpftool map update pinned "$PIN_DIR/tx_ifindex" key 2 0 0 0 value "$IFIDX_A" 0 0 0
+bpftool map update pinned "$PIN_DIR/tx_ifindex" key 3 0 0 0 value "$IFIDX_B" 0 0 0
 echo "[lb] maps updated"
 
 # ---------- 9. attach 程式到 bridge ----------
