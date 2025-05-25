@@ -16,8 +16,6 @@ RUN pip install --no-cache-dir flask psutil gunicorn
 RUN cat > /usr/local/bin/start-backend <<EOF
 #!/bin/sh
 set -e    # 遇到錯誤就退出
-# 綁定 VIP
-ip addr add 10.10.0.5/32 dev lo
 
 # 啟動 Gunicorn
 exec gunicorn server:app \

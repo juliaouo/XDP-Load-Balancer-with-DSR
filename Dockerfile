@@ -21,7 +21,7 @@ RUN git clone --depth 1 --recurse-submodules \
     install -m 0755 /tmp/bpftool/src/bpftool /usr/local/bin/
 
 # 編譯 libbpf + XDP 範例
-ARG TARGET=xdp_dsr
+ARG TARGET=xdp_lb
 RUN make -C libbpf/src && \
     make TARGET=${TARGET}
 
@@ -41,7 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 拷貝編譯產物
 COPY --from=build /usr/local/bin/bpftool /usr/local/bin/
-COPY --from=build /src/xdp_dsr_kern.o /usr/local/bin/
+# COPY --from=build /src/xdp_dsr_kern.o /usr/local/bin/
+COPY --from=build /src/xdp_lb_kern.o /usr/local/bin/
 COPY --from=build /src/metrics_collector /usr/local/bin/
 
 # 拷貝 Python 後端伺服器

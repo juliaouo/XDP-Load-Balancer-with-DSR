@@ -1,7 +1,8 @@
 # ------------------------------------------------------------
 #  lb-from-scratch  Makefile（核心必編；loader 有檔才編）
 # ------------------------------------------------------------
-TARGET  ?= xdp_dsr               # 預設範例
+# TARGET  ?= xdp_dsr               # 預設範例
+TARGET  ?= xdp_lb
 ARCH    ?= x86_64
 
 KERN_SRC  := $(TARGET)_kern.c
