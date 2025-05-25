@@ -10,7 +10,6 @@
 
 #define BACKEND_A 2
 #define BACKEND_B 3
-#define CLIENT 4
 #define LB 5
 
 #define VIP_IP    bpf_htonl(0x0A0A0005)  /* 10.10.0.5 */
@@ -19,11 +18,6 @@
 struct backend {
     __u8 mac[6];
 };
-
-// static const __u32 backend_ips[MAX_BE] = {
-//     [0] = IP_ADDRESS(BACKEND_A),
-//     [1] = IP_ADDRESS(BACKEND_B),
-// };
 
 // BPF Map: 儲存後端伺服器統計資料
 struct {
@@ -69,15 +63,15 @@ static __always_inline __u32 select_best_backend(void) {
         struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
         if (!stats_b) {
             // 兩邊都沒資料，fallback to round-robin
-            return (bpf_ktime_get_ns() % 2) ? 0 : 1;
+            return (bpf_ktime_get_ns() % 2) ? BACKEND_A : BACKEND_B;
         }
         // 只有 B 有資料
-        return 1;
+        return BACKEND_B;
     }
     struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
     if (!stats_b) {
         // 只有 A 有資料
-        return 0;
+        return BACKEND_A;
     }
 
     // 算負載分數並選擇較低的
@@ -86,7 +80,7 @@ static __always_inline __u32 select_best_backend(void) {
     
     bpf_printk("Backend A score: %u, Backend B score: %u", score_a, score_b);
     
-    return (score_a <= score_b) ? 0 : 1;
+    return (score_a <= score_b) ? BACKEND_A : BACKEND_B;
 }
 
 // 更新連線計數
@@ -139,42 +133,65 @@ int xdp_load_balancer(struct xdp_md *ctx)
     }
     bpf_printk("XDP: matched VIP\n");
 
-    if (iph->saddr == IP_ADDRESS(CLIENT)) {
-        struct flow_key fk = {
-            .src_ip   = iph->saddr,
-            .dst_ip   = iph->daddr,
-            .proto    = iph->protocol,
-        };
-        // TCP 還要 parse port，必須先確認 L4 header 在 bounds 內
-        struct tcphdr *th = (void*)iph + sizeof(*iph);
-        if ((void*)(th + 1) > data_end) {
-            // TCP 頭不完整，就不做 DS-Rewrite，直接交給內核
-            return XDP_PASS;
-        }
-        fk.src_port = bpf_ntohs(th->source);
-        fk.dst_port = bpf_ntohs(th->dest);
+    // TCP 還要 parse port，必須先確認 L4 header 在 bounds 內
+    struct tcphdr *th = (void*)iph + sizeof(*iph);
+    if ((void*)(th + 1) > data_end) {
+        // TCP 頭不完整，就不做 DS-Rewrite，直接交給內核
+        return XDP_PASS;
+    }
 
+    struct flow_key fk = {
+        .src_ip   = iph->saddr,
+        .dst_ip   = iph->daddr,
+        .proto    = iph->protocol,
+        .src_port = bpf_ntohs(th->source),
+        .dst_port = bpf_ntohs(th->dest),
+    };
+
+    if (iph->saddr != IP_ADDRESS(BACKEND_A) && iph->saddr != IP_ADDRESS(BACKEND_B)) {
         __u32 selected_backend;
         __u32 backend_ip;
         __u32 *p = bpf_map_lookup_elem(&connection_map, &fk);
         if (p) {
             selected_backend = *p;
-            backend_ip = IP_ADDRESS(selected_backend + 2);
+            backend_ip = IP_ADDRESS(selected_backend);
         } else {
+            // 選擇後端
             selected_backend = select_best_backend();
+            // 更新去程 key
             bpf_map_update_elem(&connection_map, &fk, &selected_backend, BPF_ANY);
-            // __u32 backend_ip = backend_ips[selected_backend];
-            backend_ip = IP_ADDRESS(selected_backend + 2);
+            backend_ip = IP_ADDRESS(selected_backend);
             update_connection_count(backend_ip, 1);
+
+            // 更新返程 key
+            struct flow_key fk_rev = {
+                .src_ip   = IP_ADDRESS(selected_backend),
+                .dst_ip   = fk.dst_ip,
+                .proto    = fk.proto,
+                .src_port = fk.dst_port,
+                .dst_port = fk.src_port,
+            };
+            __u32 client_idx = bpf_ntohl(fk.src_ip) & 0xFF;
+            bpf_map_update_elem(&connection_map, &fk_rev, &client_idx, BPF_ANY);
         }
 
         iph->daddr = backend_ip;
-        eth->h_dest[5] = selected_backend + 2;
+        eth->h_dest[5] = selected_backend;
     }
     else
     {
-        iph->daddr = IP_ADDRESS(CLIENT);
-        eth->h_dest[5] = CLIENT;
+        __u32 *p = bpf_map_lookup_elem(&connection_map, &fk);
+        if (p) {
+            __u32 client_idx = *p;
+            __u32 client_ip = IP_ADDRESS(client_idx);
+            iph->daddr = client_ip;
+            eth->h_dest[5] = client_idx;
+        }
+        // 如果没命中，只 PASS 回内核
+        else {
+            bpf_printk("XDP: reply not match\n");
+            return XDP_PASS;
+        }
     }
     iph->saddr = IP_ADDRESS(LB);
     eth->h_source[5] = LB;
