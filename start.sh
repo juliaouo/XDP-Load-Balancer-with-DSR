@@ -51,9 +51,11 @@ find_map_id() {               # $1 = backends | tx_ifindex
 
 ID_BACKENDS=$(find_map_id backends)  || { echo "[lb] cannot find backends map"; exit 1; }
 ID_TXIDX=$(find_map_id tx_ifindex)   || { echo "[lb] cannot find tx_ifindex map"; exit 1; }
+ID_STATS=$(find_map_id backend_stats_m) || { echo "[lb] cannot find backend_stats_m map"; exit 1; }
 
 bpftool map pin id "$ID_BACKENDS" "$PIN_DIR/backends"
 bpftool map pin id "$ID_TXIDX"    "$PIN_DIR/tx_ifindex"
+bpftool map pin id "$ID_STATS"    "$PIN_DIR/backend_stats_m"
 echo "[lb] pin maps → backends=$ID_BACKENDS  tx_ifindex=$ID_TXIDX"
 
 # ---------- 6. 幫手函式 ----------

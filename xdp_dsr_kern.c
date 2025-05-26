@@ -115,12 +115,13 @@ static __always_inline __u32 select_best_backend(void) {
 static __always_inline void update_connection_count(__u32 backend_ip, int delta) {
     struct backend_stats *stats = bpf_map_lookup_elem(&backend_stats_m, &backend_ip);
     if (stats) {
+        struct backend_stats new_stats = *stats;
         if (delta > 0) {
-            stats->active_conns++;
-        } else if (delta < 0 && stats->active_conns > 0) {
-            stats->active_conns--;
+            new_stats.active_conns++;
+        } else if (delta < 0 && new_stats.active_conns > 0) {
+            new_stats.active_conns--;
         }
-        bpf_map_update_elem(&backend_stats_m, &backend_ip, stats, BPF_ANY);
+        bpf_map_update_elem(&backend_stats_m, &backend_ip, &new_stats, BPF_ANY);
     }
 }
 
@@ -179,6 +180,18 @@ int xdp_dsr_lb(struct xdp_md *ctx)
     __u32 *p = bpf_map_lookup_elem(&connection_map, &fk);
     if (p) {
         selected_backend = *p;
+
+        // 檢查是否為 TCP FIN 或 RST 封包
+        if (iph->protocol == IPPROTO_TCP) {
+            if (th->fin || th->rst) {
+                // 取得 backend_ip
+                __u32 backend_ip = IP_ADDRESS(selected_backend + 2);
+                // 從 connection_map 移除
+                bpf_map_delete_elem(&connection_map, &fk);
+                // 遞減 active_conns
+                update_connection_count(backend_ip, -1);
+            }
+        }
     } else {
         selected_backend = select_best_backend();
         bpf_map_update_elem(&connection_map, &fk, &selected_backend, BPF_ANY);

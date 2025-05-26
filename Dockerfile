@@ -54,13 +54,7 @@ RUN rm -f /usr/sbin/bpftool /usr/bin/bpftool && \
 
 RUN cat > /usr/local/bin/lb-status.sh <<'EOF'
 #!/bin/bash
-IFACE=${IFACE:-eth0}
-
 echo "=== Smart Load Balancer Status ==="
-echo ""
-
-echo "Network Interface Status:"
-ip link show $IFACE | grep xdp || echo "No XDP program loaded on $IFACE"
 
 echo ""
 echo "BPF Maps:"
@@ -70,6 +64,11 @@ bpftool map dump name backend_stats_m 2>/dev/null || echo "backend_stats_m not f
 echo ""
 echo "Connection Map:"
 bpftool map dump name connection_map 2>/dev/null || echo "connection_map not found"
+EOF
+
+RUN cat > /usr/local/bin/logs.sh <<'EOF'
+#!/bin/bash
+cat /sys/kernel/debug/tracing/trace_pipe
 EOF
 
 # 讓腳本可執行

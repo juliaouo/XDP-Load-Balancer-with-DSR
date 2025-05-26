@@ -106,48 +106,19 @@ int fetch_metrics(const char *backend_ip, struct backend_stats *stats) {
 
 int main(int argc, char **argv)
 {
-    struct bpf_object *obj;
     int backend_stats_fd;
     int ret;
-    
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <bpf_object_file>\n", argv[0]);
-        return 1;
+
+    // 獲取 backend_stats_m 的檔案描述符
+    backend_stats_fd = bpf_obj_get("/sys/fs/bpf/xdp_dsr/backend_stats_m");
+    if (backend_stats_fd < 0) {
+        fprintf(stderr, "ERROR: finding backend_stats_m failed\n");
+        goto cleanup;
     }
 
     // 初始化 curl
     curl_global_init(CURL_GLOBAL_DEFAULT);
     
-    // 載入 BPF 物件
-    obj = bpf_object__open_file(argv[1], NULL);
-    if (libbpf_get_error(obj))
-    {
-        fprintf(stderr, "ERROR: opening BPF object file failed\n");
-        return 0;
-    }
-
-    /* load BPF program */
-    if (bpf_object__load(obj))
-    {
-        fprintf(stderr, "ERROR: loading BPF object file failed\n");
-        goto cleanup;
-    }
-
-    // 獲取 backend_stats_m 的檔案描述符
-    backend_stats_fd = bpf_object__find_map_fd_by_name(obj, "backend_stats_m");
-    if (backend_stats_fd < 0) {
-        fprintf(stderr, "ERROR: finding backend_stats_m failed\n");
-        goto cleanup;
-    }
-    bpf_obj_pin(backend_stats_fd, "/sys/fs/bpf/backend_stats_m");
-
-    int connection_map_fd = bpf_object__find_map_fd_by_name(obj, "connection_map");
-    if (connection_map_fd < 0) {
-        fprintf(stderr, "ERROR: finding connection_map failed\n");
-        goto cleanup;
-    }
-    bpf_obj_pin(connection_map_fd, "/sys/fs/bpf/connection_map");
-
     printf("Starting metrics collection...\n");
     
     // 主循環：每 5 秒收集一次指標
@@ -190,7 +161,6 @@ int main(int argc, char **argv)
     }
 
 cleanup:
-    bpf_object__close(obj);
     curl_global_cleanup();
     return 0;
 }

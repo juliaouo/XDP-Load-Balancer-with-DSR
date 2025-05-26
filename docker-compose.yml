@@ -43,6 +43,7 @@ services:
     privileged: true
     volumes:
       - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/kernel/debug:/sys/kernel/debug:ro
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - backend-a
@@ -58,6 +59,36 @@ services:
     networks:
       lbnet:
         ipv4_address: 10.10.0.4
+
+  client-test1:
+    image: curlimages/curl
+    container_name: client-test1
+    entrypoint: sh
+    stdin_open: true
+    tty: true
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.11
+
+  client-test2:
+    image: curlimages/curl
+    container_name: client-test2
+    entrypoint: sh
+    stdin_open: true
+    tty: true
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.12
+
+  client-test3:
+    image: curlimages/curl
+    container_name: client-test3
+    entrypoint: sh
+    stdin_open: true
+    tty: true
+    networks:
+      lbnet:
+        ipv4_address: 10.10.0.13
 
 networks:
   lbnet:
