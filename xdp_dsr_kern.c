@@ -11,14 +11,14 @@
 #define BACKEND_A 2
 #define BACKEND_B 3
 
-#define VIP_IP    bpf_htonl(0x0A0A0005)  /* 10.10.0.5 */
+#define VIP_IP    bpf_htonl(0x0A0A0005)  // 10.10.0.5
 #define MAX_BE    16
 
 struct backend {
     __u8 mac[6];
 };
 
-/* 后端 MAC 列表 */
+// 後端 MAC 列表
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, MAX_BE);
@@ -26,7 +26,7 @@ struct {
     __type(value, struct backend);
 } backends SEC(".maps");
 
-/* 后端容器 veth ifindex 列表 */
+// 後端容器 veth ifindex 列表
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, MAX_BE);
@@ -123,26 +123,26 @@ int xdp_dsr_lb(struct xdp_md *ctx)
 
     bpf_printk("XDP: start\n");
 
-    /* L2 边界检查 */
+    // L2 邊界檢查
     if ((void*)(eth + 1) > data_end) {
         bpf_printk("XDP: drop ethhdr OOB\n");
         return XDP_ABORTED;
     }
 
-    /* 只处理 IPv4 */
+    // 只處理 IPv4
     if (bpf_ntohs(eth->h_proto) != ETH_P_IP) {
         bpf_printk("XDP: non-IP, PASS\n");
         return XDP_PASS;
     }
 
     iph = (void*)(eth + 1);
-    /* L3 边界检查 */
+    // L3 邊界檢查
     if ((void*)(iph + 1) > data_end) {
         bpf_printk("XDP: drop iphdr OOB\n");
         return XDP_ABORTED;
     }
 
-    /* 只处理 VIP */
+    // 只處理 VIP
     if (iph->daddr != VIP_IP) {
         bpf_printk("XDP: not VIP 0x%x, PASS\n", bpf_ntohl(iph->daddr));
         return XDP_PASS;
@@ -189,7 +189,7 @@ int xdp_dsr_lb(struct xdp_md *ctx)
 
     key = selected_backend;
 
-    /* 查 MAC 并改写 */
+    // 查 MAC 並改寫
     struct backend *be = bpf_map_lookup_elem(&backends, &key);
     if (!be) {
         bpf_printk("XDP: map miss backends key=%u\n", key);
@@ -198,7 +198,7 @@ int xdp_dsr_lb(struct xdp_md *ctx)
     __builtin_memcpy(eth->h_dest, be->mac, 6);
     bpf_printk("XDP: rewrote dst MAC key=%u\n", key);
 
-    /* 查 ifindex 并重定向 */
+    // 查 ifindex 並重定向
     __u32 *p_if = bpf_map_lookup_elem(&tx_ifindex, &key);
     if (!p_if) {
         bpf_printk("XDP: map miss tx_ifindex key=%u\n", key);
