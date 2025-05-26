@@ -172,7 +172,7 @@ int xdp_dsr_lb(struct xdp_md *ctx)
         if (iph->protocol == IPPROTO_TCP) {
             if (th->fin || th->rst) {
                 // 取得 backend_ip
-                __u32 backend_ip = IP_ADDRESS(selected_backend + 2);
+                __u32 backend_ip = IP_ADDRESS(selected_backend);
                 // 從 connection_map 移除
                 bpf_map_delete_elem(&connection_map, &fk);
                 // 遞減 active_conns
