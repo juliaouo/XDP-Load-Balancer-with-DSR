@@ -5,31 +5,18 @@
 #include <bpf_endian.h>
 #include "xdp_dsr_kern.h"
 #include <linux/tcp.h>
-#define TCP_SYN 0x02
-#define TCP_ACK 0x10
 
 #define IP_ADDRESS(x) (unsigned int)(10 + (10 << 8) + (0 << 16) + ((x) << 24))
-
-#define NIPQUAD(addr) \
-    ((addr)       & 0xff), \
-    (((addr) >> 8)  & 0xff), \
-    (((addr) >> 16) & 0xff), \
-    (((addr) >> 24) & 0xff)
 
 #define BACKEND_A 2
 #define BACKEND_B 3
 
 #define VIP_IP    bpf_htonl(0x0A0A0005)  /* 10.10.0.5 */
-#define MAX_BE    2
+#define MAX_BE    16
 
 struct backend {
     __u8 mac[6];
 };
-
-// static const __u32 backend_ips[MAX_BE] = {
-//     [0] = IP_ADDRESS(BACKEND_A),
-//     [1] = IP_ADDRESS(BACKEND_B),
-// };
 
 /* 后端 MAC 列表 */
 struct {
@@ -52,7 +39,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, __u32);
     __type(value, struct backend_stats);
-    __uint(max_entries, 16);
+    __uint(max_entries, MAX_BE);
 } backend_stats_m SEC(".maps");
 
 // BPF Map: 儲存連線追蹤 (5-tuple)
@@ -91,15 +78,15 @@ static __always_inline __u32 select_best_backend(void) {
         struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
         if (!stats_b) {
             // 兩邊都沒資料，fallback to round-robin
-            return (bpf_ktime_get_ns() % 2) ? 0 : 1;
+            return (bpf_ktime_get_ns() % 2) ? BACKEND_A : BACKEND_B;
         }
         // 只有 B 有資料
-        return 1;
+        return BACKEND_B;
     }
     struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
     if (!stats_b) {
         // 只有 A 有資料
-        return 0;
+        return BACKEND_A;
     }
 
     // 算負載分數並選擇較低的
@@ -108,7 +95,7 @@ static __always_inline __u32 select_best_backend(void) {
     
     bpf_printk("Backend A score: %u, Backend B score: %u", score_a, score_b);
     
-    return (score_a <= score_b) ? 0 : 1;
+    return (score_a <= score_b) ? BACKEND_A : BACKEND_B;
 }
 
 // 更新連線計數
@@ -196,7 +183,7 @@ int xdp_dsr_lb(struct xdp_md *ctx)
         selected_backend = select_best_backend();
         bpf_map_update_elem(&connection_map, &fk, &selected_backend, BPF_ANY);
         // __u32 backend_ip = backend_ips[selected_backend];
-        __u32 backend_ip = IP_ADDRESS(selected_backend + 2);
+        __u32 backend_ip = IP_ADDRESS(selected_backend);
         update_connection_count(backend_ip, 1);
     }
 
