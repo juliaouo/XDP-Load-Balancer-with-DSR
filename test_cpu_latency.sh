@@ -6,7 +6,7 @@ target_ip=10.10.0.5
 
 for c in "${clients[@]}"; do
   docker exec "$c" sh -c "
-    for i in \$(seq 1 500); do
+    for i in \$(seq 1 800); do
       curl -o /dev/null -s -w '%{time_total}\n' http://$target_ip:80/cpu &
     done
     wait

@@ -7,7 +7,7 @@ target_ip=10.10.0.5
 for c in "${clients[@]}"; do
   docker exec "$c" sh -c "
     for i in \$(seq 1 100); do
-      curl -o /dev/null --output - -s -w '%{time_total}\n' http://$target_ip:80/io/l100 &
+      curl -o /dev/null --output - -s -w '%{time_total}\n' http://$target_ip:80/io &
       if [ \$((i % 100)) -eq 0 ]; then
         wait
       fi
