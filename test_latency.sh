@@ -4,9 +4,21 @@
 clients=(client-test1 client-test2 client-test3)
 target_ip=10.10.0.5
 
+# for c in "${clients[@]}"; do
+#   docker exec $c sh -c "
+#     # 平行發 1000 個 request
+#     for i in \$(seq 1 1000); do
+#       curl -o /dev/null -s -w '%{time_total}\n' http://$target_ip:80/cpu &
+#     done
+#     # 等所有後端任務完成
+#     wait
+#   " > ${c}_latency_cpu.txt &
+# done
 for c in "${clients[@]}"; do
   docker exec $c sh -c "for i in \$(seq 1 1000); do curl -o /dev/null -s -w '%{time_total}\n' http://$target_ip:80/cpu; done" > ${c}_latency_cpu.txt &
-done
+
+# 等所有 client 容器的任务都结束
+wait
 
 wait
 
