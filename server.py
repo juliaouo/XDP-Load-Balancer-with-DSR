@@ -1,18 +1,22 @@
+
 # server.py
 from flask import Flask, Response, request
 import os
 import time
 import psutil
+import socket
 import threading
 from flask import stream_with_context
 
 app = Flask(__name__)
 cpu_times = []
 latency_records = []
+hostname = socket.gethostname()
+ip = socket.gethostbyname(hostname)
 
 @app.route("/")
 def hello():
-    return "OK\n"
+    return f"OK from {ip}\n"
 
 @app.route("/cpu")
 def cpu():
@@ -25,7 +29,7 @@ def cpu():
     latency_records.append(latency)
     if len(latency_records) > 10:
         latency_records.pop(0)
-    return "cpu done\n"
+    return f"cpu done from {ip}\n"
 
 @app.route("/io")
 def io_load():
