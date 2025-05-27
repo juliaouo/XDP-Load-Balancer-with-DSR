@@ -35,7 +35,7 @@ def cpu():
 def io_load():
     def gen():
         # 每次都重新生成，避免重复引用同一块内存
-        for _ in range(5):
+        for _ in range(100):
             yield os.urandom(1024*1024)
     # 把 generator 包裹进 stream_with_context，这样每次 yield 都有活跃的 request/app context
     return Response(
