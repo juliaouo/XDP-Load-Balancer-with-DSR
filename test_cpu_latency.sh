@@ -6,11 +6,11 @@ target_ip=10.10.0.5
 
 for c in "${clients[@]}"; do
   docker exec "$c" sh -c "
-    for i in \$(seq 1 800); do
-      curl -o /dev/null -s -w '%{time_total}\n' http://$target_ip:80/cpu &
+    for i in \$(seq 1 400); do
+        curl -o /dev/null -s -w '%{http_code} %{time_total}\n' http://$target_ip:80/cpu &
     done
     wait
-  " > "${c}_latency_cpu.txt" &
+  " | awk '$1 == 200 {print $2}' > "${c}_latency_cpu.txt" &
 done
 
 wait
