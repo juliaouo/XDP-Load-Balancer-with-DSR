@@ -12,7 +12,7 @@
 #define BACKEND_B 3
 #define LB 5
 
-#define VIP_IP    bpf_htonl(0x0A0A0005)  /* 10.10.0.5 */
+#define VIP_IP    bpf_htonl(0x0A0A0005)  // 10.10.0.5
 #define MAX_BE    2
 
 struct backend {
@@ -107,26 +107,26 @@ int xdp_load_balancer(struct xdp_md *ctx)
 
     bpf_printk("XDP: start\n");
 
-    /* L2 边界检查 */
+    // L2 邊界檢查
     if ((void*)(eth + 1) > data_end) {
         bpf_printk("XDP: drop ethhdr OOB\n");
         return XDP_ABORTED;
     }
 
-    /* 只处理 IPv4 */
+    // 只處理 IPv4
     if (bpf_ntohs(eth->h_proto) != ETH_P_IP) {
         bpf_printk("XDP: non-IP, PASS\n");
         return XDP_PASS;
     }
 
     iph = (void*)(eth + 1);
-    /* L3 边界检查 */
+    // L3 邊界檢查
     if ((void*)(iph + 1) > data_end) {
         bpf_printk("XDP: drop iphdr OOB\n");
         return XDP_ABORTED;
     }
 
-    /* 只处理 VIP */
+    // 只處理 VIP
     if (iph->daddr != VIP_IP) {
         bpf_printk("XDP: not VIP 0x%x, PASS\n", bpf_ntohl(iph->daddr));
         return XDP_PASS;
@@ -187,7 +187,7 @@ int xdp_load_balancer(struct xdp_md *ctx)
             iph->daddr = client_ip;
             eth->h_dest[5] = client_idx;
         }
-        // 如果没命中，只 PASS 回内核
+        // 如果沒命中，只 PASS 回內核
         else {
             bpf_printk("XDP: reply not match\n");
             return XDP_PASS;
@@ -201,4 +201,4 @@ int xdp_load_balancer(struct xdp_md *ctx)
     return XDP_TX;
 }
 
-char _license[] SEC("license") = "GPL";  
+char _license[] SEC("license") = "GPL";
