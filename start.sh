@@ -40,7 +40,7 @@ ID_STATS=$(find_map_id backend_stats_m) || { echo "[lb] cannot find backend_stat
 bpftool map pin id "$ID_STATS"    "$PIN_DIR/backend_stats_m"
 
 # ---------- attach 程式到 bridge ----------
-ip link set dev eth0 xdpgeneric obj /usr/local/bin/xdp_lb_kern.o sec xdp_lb
+ip link set dev eth0 xdpgeneric pinned "$PIN_DIR/prog_xdp"
 echo "[lb] XDP attached on eth0"
 
 echo "[lb] Starting metrics collector in background..."
