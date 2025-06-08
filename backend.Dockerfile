@@ -19,10 +19,10 @@ set -e    # 遇到錯誤就退出
 
 # 啟動 Gunicorn
 exec gunicorn server:app \
-    --workers 4 \
+    --workers  8\
     --bind 0.0.0.0:80 \
     --worker-class sync \
-    --backlog 128
+    --backlog 4096
 EOF
 
 # 4. 賦予啟動腳本執行權限
