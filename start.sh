@@ -52,10 +52,14 @@ find_map_id() {               # $1 = backends | tx_ifindex
 ID_BACKENDS=$(find_map_id backends)  || { echo "[lb] cannot find backends map"; exit 1; }
 ID_TXIDX=$(find_map_id tx_ifindex)   || { echo "[lb] cannot find tx_ifindex map"; exit 1; }
 ID_STATS=$(find_map_id backend_stats_m) || { echo "[lb] cannot find backend_stats_m map"; exit 1; }
+ID_POLICY_CFG=$(find_map_id policy_cfg) || { echo "[lb] cannot find policy_cfg map"; exit 1; }
+ID_WEIGHT=$(find_map_id weight_map) || { echo "[lb] cannot find weight_map map"; exit 1; }
 
 bpftool map pin id "$ID_BACKENDS" "$PIN_DIR/backends"
 bpftool map pin id "$ID_TXIDX"    "$PIN_DIR/tx_ifindex"
 bpftool map pin id "$ID_STATS"    "$PIN_DIR/backend_stats_m"
+bpftool map pin id "$ID_POLICY_CFG"    "$PIN_DIR/policy_cfg"
+bpftool map pin id "$ID_WEIGHT"    "$PIN_DIR/weight_map"
 echo "[lb] pin maps → backends=$ID_BACKENDS  tx_ifindex=$ID_TXIDX"
 
 # ---------- 6. 幫手函式 ----------

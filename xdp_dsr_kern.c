@@ -50,32 +50,64 @@ struct {
     __type(value, __u32);   // backend index
 } connection_map SEC(".maps");
 
-// 計算後端伺服器的負載分數 (越低越好)
-static __always_inline __u32 calculate_load_score(struct backend_stats *stats) {
-    __u64 now = bpf_ktime_get_ns();
-    
-    // 如果統計資料太舊 (超過 10 秒)，給予懲罰分數
-    if (now - stats->last_updated > 10000000000ULL) {
-        return 999999; // 高懲罰分數
-    }
-    
-    // 負載分數 = CPU使用率 * 100 + 平均延遲 + 活躍連線數 * 10
-    // 這個公式可以根據需求調整權重
-    __u32 score = (stats->cpu_percent / 100) * 100 +  // CPU 權重
-                  (stats->avg_latency / 100) +         // 延遲權重
-                  stats->active_conns * 10;            // 連線數權重
-    
-    return score;
+/* 全局 policy 設定：key=0, value=policy_id */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key,   __u32);
+    __type(value, __u32);
+} policy_cfg SEC(".maps");
+
+/* key = 0，value = 權重結構；由 user space 動態調整 */
+struct weight_cfg {
+    __u32 w_cpu;     
+    __u32 w_lat;    
+    __u32 w_conn;    
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key,   __u32);
+    __type(value, struct weight_cfg);
+} weight_map SEC(".maps");
+
+static __always_inline __u32
+calculate_load_score(const struct backend_stats *stats)
+{
+    /* 1️⃣ 檢查資料新舊 */
+    if (bpf_ktime_get_ns() - stats->last_updated > 10ULL * 1e9)
+        return 999999;       /* 過期直接懲罰 */
+
+    /* 2️⃣ 讀取權重（若查不到，用內建預設） */
+    __u32 zero = 0;
+    const struct weight_cfg *w = bpf_map_lookup_elem(&weight_map, &zero);
+    __u32 wc = w ? w->w_cpu  : 100;
+    __u32 wl = w ? w->w_lat  :   1;
+    __u32 wa = w ? w->w_conn :  10;
+
+    /* 3️⃣ 計分 (越低越好) */
+    return (stats->cpu_percent / 100) * wc +
+           (stats->avg_latency / 100) * wl +
+           stats->active_conns * wa;
 }
 
 // 選擇最佳後端伺服器
-static __always_inline __u32 select_best_backend(void) {
+static __always_inline __u32
+select_best_backend(void)
+{
     __u32 backend_a_ip = IP_ADDRESS(BACKEND_A);
     __u32 backend_b_ip = IP_ADDRESS(BACKEND_B);
 
+    /* 1️⃣  讀當前 policy（查不到就用 0） */
+    __u32 zero = 0, policy = 0;
+    __u32 *p_pol = bpf_map_lookup_elem(&policy_cfg, &zero);
+    if (p_pol)
+        policy = *p_pol;
+
     struct backend_stats *stats_a = bpf_map_lookup_elem(&backend_stats_m, &backend_a_ip);
+    struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
     if (!stats_a) {
-        struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
         if (!stats_b) {
             // 兩邊都沒資料，fallback to round-robin
             return (bpf_ktime_get_ns() % 2) ? BACKEND_A : BACKEND_B;
@@ -83,19 +115,39 @@ static __always_inline __u32 select_best_backend(void) {
         // 只有 B 有資料
         return BACKEND_B;
     }
-    struct backend_stats *stats_b = bpf_map_lookup_elem(&backend_stats_m, &backend_b_ip);
     if (!stats_b) {
         // 只有 A 有資料
         return BACKEND_A;
     }
 
-    // 算負載分數並選擇較低的
+    /* 計分 */
     __u32 score_a = calculate_load_score(stats_a);
     __u32 score_b = calculate_load_score(stats_b);
-    
-    bpf_printk("Backend A score: %u, Backend B score: %u", score_a, score_b);
-    
-    return (score_a <= score_b) ? BACKEND_A : BACKEND_B;
+
+    /* 2️⃣  根據 policy 決策 */
+    switch (policy) {
+    case 1: { /* Policy 1 : random 50/50 */
+        bpf_printk("XDP: policy random\n");
+        return (bpf_get_prandom_u32() & 1) ? BACKEND_A : BACKEND_B;
+    }
+
+    case 2: { /* Policy 2 : Weighted-random (1/score) */
+        /* 避免除以 0：若 score==0 視為最低 1 */
+        __u64 inv_a = score_a ? (1000000ULL / score_a) : 1000000ULL;
+        __u64 inv_b = score_b ? (1000000ULL / score_b) : 1000000ULL;
+        __u64 total = inv_a + inv_b;
+        /* 產生 0..total-1 的隨機值 */
+        __u64 r = bpf_get_prandom_u32();
+        r = (r * total) >> 32;
+        bpf_printk("XDP: policy Weighted-random\n");
+        return (r < inv_a) ? BACKEND_A : BACKEND_B;
+    }
+
+    case 0:  /* fall-through */
+    default: /* Policy 0 : 選分數最小 */
+        bpf_printk("XDP: policy default\n");
+        return (score_a <= score_b) ? BACKEND_A : BACKEND_B;
+    }
 }
 
 // 更新連線計數
